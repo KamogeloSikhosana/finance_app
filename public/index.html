@@ -1,0 +1,146 @@
+<!doctype html>
+<html>
+<head>
+  <meta charset="utf-8" />
+  <title>Financial Upload Dashboard</title>
+  <style>
+    body { font-family: Arial, Helvetica, sans-serif; margin: 20px; max-width: 900px; }
+    .card { border: 1px solid #ddd; padding: 16px; border-radius: 8px; margin-bottom: 16px; }
+    label { display:block; margin-bottom:6px; }
+    input[type="file"] { display:block; margin-bottom:8px; }
+    table { width:100%; border-collapse: collapse; margin-top:12px; }
+    th, td { text-align:left; padding:8px; border-bottom:1px solid #eee; }
+    .error { color: red; }
+  </style>
+</head>
+<body>
+  <h1>Financial Data Upload</h1>
+
+  <div class="card">
+    <form id="uploadForm">
+      <label>User ID: <input type="number" id="userId" value="1" min="1" required /></label>
+      <label>Year: <input type="number" id="year" value="2025" min="1900" required /></label>
+      <label>Select Excel file (.xlsx) with columns: Month, Amount</label>
+      <input type="file" id="fileInput" accept=".xls,.xlsx" required />
+      <button type="submit">Upload</button>
+      <div id="status"></div>
+    </form>
+  </div>
+
+  <div id="result" style="display:none;">
+    <div class="card">
+      <h2 id="userTitle"></h2>
+      <canvas id="chart" width="800" height="300"></canvas>
+      <table id="recordsTable">
+        <thead><tr><th>Month</th><th>Amount</th></tr></thead>
+        <tbody></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- Chart.js CDN -->
+  <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  <script>
+    const form = document.getElementById('uploadForm');
+    const fileInput = document.getElementById('fileInput');
+    const status = document.getElementById('status');
+    const resultDiv = document.getElementById('result');
+    const userTitle = document.getElementById('userTitle');
+    const tableBody = document.querySelector('#recordsTable tbody');
+    const ctx = document.getElementById('chart').getContext('2d');
+    let chart = null;
+
+    form.addEventListener('submit', async (e) => {
+      e.preventDefault();
+      status.textContent = '';
+      resultDiv.style.display = 'none';
+
+      const userId = document.getElementById('userId').value;
+      const year = document.getElementById('year').value;
+      const file = fileInput.files[0];
+      if (!file) {
+        status.innerHTML = '<div class="error">Please select a file</div>';
+        return;
+      }
+
+      const fd = new FormData();
+      fd.append('file', file, file.name);
+
+      try {
+        status.textContent = 'Uploading...';
+        const res = await fetch(`/api/finances/upload/${userId}/${year}`, {
+          method: 'POST',
+          body: fd
+        });
+        const json = await res.json();
+        if (!res.ok) {
+          status.innerHTML = '<div class="error">'+(json.error || 'Upload failed')+'</div>';
+          return;
+        }
+        status.textContent = json.message || 'Upload successful';
+        // now fetch the saved data
+        await fetchAndDisplay(userId, year);
+      } catch (err) {
+        console.error(err);
+        status.innerHTML = '<div class="error">Network/server error</div>';
+      }
+    });
+
+    async function fetchAndDisplay(userId, year) {
+      try {
+        status.textContent = 'Fetching saved data...';
+        const res = await fetch(`/api/finances/${userId}/${year}`);
+        const json = await res.json();
+        if (!res.ok) {
+          status.innerHTML = '<div class="error">'+(json.error || 'Failed to fetch')+'</div>';
+          return;
+        }
+        status.textContent = '';
+        resultDiv.style.display = 'block';
+        userTitle.textContent = json.user.name + ' — ' + json.year;
+
+        // Fill table and chart
+        const recs = json.records || [];
+        // order months January..December
+        const order = ["January","February","March","April","May","June","July","August","September","October","November","December"];
+        // create mapping to ensure months with no data show 0
+        const map = new Map();
+        recs.forEach(r => map.set(r.month, Number(r.amount)));
+
+        const labels = order;
+        const data = labels.map(m => map.has(m) ? map.get(m) : 0);
+
+        // populate table (only rows that exist)
+        tableBody.innerHTML = '';
+        for (const m of labels) {
+          const val = map.has(m) ? map.get(m) : '';
+          const tr = document.createElement('tr');
+          tr.innerHTML = `<td>${m}</td><td>${val === '' ? '' : val.toFixed(2)}</td>`;
+          tableBody.appendChild(tr);
+        }
+
+        // render chart
+        if (chart) chart.destroy();
+        chart = new Chart(ctx, {
+          type: 'bar',
+          data: {
+            labels,
+            datasets: [{
+              label: 'Amount',
+              data
+            }]
+          },
+          options: {
+            scales: {
+              y: { beginAtZero: true }
+            }
+          }
+        });
+      } catch (err) {
+        console.error(err);
+        status.innerHTML = '<div class="error">Error fetching data</div>';
+      }
+    }
+  </script>
+</body>
+</html>
