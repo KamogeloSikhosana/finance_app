@@ -7,14 +7,12 @@ const uploadFile = async (req, res) => {
     const { userId, year } = req.params;
     if (!req.file) return res.status(400).json({ error: 'File is required' });
 
-    // Parse excel
     const records = parseExcel(req.file.buffer, parseInt(userId), parseInt(year));
 
     // Check user exists
     const user = await UserModel.findById(userId);
     if (!user) return res.status(404).json({ error: 'User not found' });
 
-    // Overwrite strategy
     await FinancialRecordModel.deleteByUserYear(userId, year);
     await FinancialRecordModel.insertMany(records);
 
